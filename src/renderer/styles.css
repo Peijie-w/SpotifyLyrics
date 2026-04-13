@@ -120,6 +120,16 @@ body {
   color: #def7ea;
 }
 
+.control-button--danger {
+  color: rgba(248, 250, 252, 0.92);
+}
+
+.control-button--danger:hover {
+  background: rgba(248, 113, 113, 0.16);
+  border-color: rgba(248, 113, 113, 0.18);
+  color: #fecaca;
+}
+
 .language-picker {
   display: inline-flex;
   align-items: center;

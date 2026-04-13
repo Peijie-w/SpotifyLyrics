@@ -9,6 +9,7 @@ const POLL_INTERVAL_MS = 500;
 const STATE_CHANNEL = "lyrics:state";
 const PLAYER_CONTROL_CHANNEL = "spotify:player-control";
 const PREPARE_TRANSLATION_CHANNEL = "lyrics:prepare-translation";
+const APP_QUIT_CHANNEL = "app:quit";
 const OPENAI_TRANSLATION_MODEL = process.env.OPENAI_TRANSLATION_MODEL || "gpt-4.1-mini";
 
 let mainWindow;
@@ -45,9 +46,78 @@ function createLyricsState(status, extra = {}) {
     plainText: "",
     message: "",
     translationStatusByLanguage: {},
+    translationErrorByLanguage: {},
     translationsByLanguage: {},
     ...extra
   };
+}
+
+async function parseJsonSafely(response) {
+  try {
+    return await response.json();
+  } catch (_error) {
+    return null;
+  }
+}
+
+async function createTranslationResponseError(scope, response) {
+  const payload = await parseJsonSafely(response);
+  const apiError = payload?.error || {};
+  const error = new Error(
+    apiError.message || `${scope} translation failed with ${response.status}`
+  );
+
+  error.translationScope = scope;
+  error.translationStatus = response.status;
+  error.translationCode = apiError.code || "";
+  error.translationType = apiError.type || "";
+
+  return error;
+}
+
+function getUserFacingTranslationError(error) {
+  const code = String(error?.translationCode || error?.code || "").toLowerCase();
+  const status = Number(error?.translationStatus || error?.status || 0);
+
+  if (code === "insufficient_quota") {
+    return "OpenAI quota exceeded";
+  }
+
+  if (code === "invalid_api_key" || status === 401) {
+    return "Invalid OpenAI API key";
+  }
+
+  if (code === "model_not_found") {
+    return "OpenAI model unavailable";
+  }
+
+  if (status === 429) {
+    return "OpenAI rate limit reached";
+  }
+
+  if (code === "mymemory_unavailable") {
+    return "Fallback translation limit reached";
+  }
+
+  if (code === "google_fallback_failed") {
+    return "Fallback translation unavailable";
+  }
+
+  return "Translation service error";
+}
+
+function shouldUseSimpleTranslationFallback(error) {
+  const code = String(error?.translationCode || error?.code || "").toLowerCase();
+  const status = Number(error?.translationStatus || error?.status || 0);
+
+  return code === "insufficient_quota" || status === 429;
+}
+
+function createTranslationServiceError(message, code = "", status = 0) {
+  const error = new Error(message);
+  error.translationCode = code;
+  error.translationStatus = status;
+  return error;
 }
 
 function detectSourceLanguage(text) {
@@ -341,7 +411,7 @@ async function translateLyricLineWithOpenAIToLanguage(text, sourceLanguage, targ
   });
 
   if (!response.ok) {
-    throw new Error(`OpenAI translation failed with ${response.status}`);
+    throw await createTranslationResponseError("line", response);
   }
 
   const payload = await response.json();
@@ -376,7 +446,7 @@ async function translateLyricsBatchWithOpenAI(lines, sourceLanguage, targetLangu
   });
 
   if (!response.ok) {
-    throw new Error(`OpenAI batch translation failed with ${response.status}`);
+    throw await createTranslationResponseError("batch", response);
   }
 
   const payload = await response.json();
@@ -414,11 +484,54 @@ async function translateLyricLineWithMyMemory(text, sourceLanguage, targetLangua
   }
 
   const payload = await response.json();
-  return payload?.responseData?.translatedText?.trim() || "";
+  const translatedText = payload?.responseData?.translatedText?.trim() || "";
+  const responseStatus = Number(payload?.responseStatus || 0);
+  const responseDetails = String(payload?.responseDetails || "").trim();
+
+  if (responseStatus >= 400) {
+    throw createTranslationServiceError(
+      responseDetails || "MyMemory translation unavailable",
+      "mymemory_unavailable",
+      responseStatus
+    );
+  }
+
+  return translatedText;
 }
 
-async function translateLyricLine(text, targetLanguage = "zh-CN") {
+async function translateLyricLineWithGoogleFallback(text, targetLanguage) {
+  const url = new URL("https://translate.googleapis.com/translate_a/single");
+  url.searchParams.set("client", "gtx");
+  url.searchParams.set("sl", "auto");
+  url.searchParams.set("tl", targetLanguage);
+  url.searchParams.set("dt", "t");
+  url.searchParams.set("q", text);
+
+  const response = await fetch(url, {
+    headers: {
+      "User-Agent": "spotify-floating-lyrics/0.1.0"
+    }
+  });
+
+  if (!response.ok) {
+    throw createTranslationServiceError(
+      `Google fallback translation failed with ${response.status}`,
+      "google_fallback_failed",
+      response.status
+    );
+  }
+
+  const payload = await response.json();
+  const segments = Array.isArray(payload?.[0]) ? payload[0] : [];
+  return segments
+    .map((segment) => String(segment?.[0] || "").trim())
+    .filter(Boolean)
+    .join("");
+}
+
+async function translateLyricLine(text, targetLanguage = "zh-CN", options = {}) {
   const normalizedText = String(text || "").replace(/\s+/g, " ").trim();
+  const skipOpenAI = Boolean(options.skipOpenAI);
 
   if (!normalizedText) {
     return "";
@@ -440,8 +553,9 @@ async function translateLyricLine(text, targetLanguage = "zh-CN") {
 
   const task = (async () => {
     let translatedText = "";
+    let lastError = null;
 
-    if (process.env.OPENAI_API_KEY) {
+    if (!skipOpenAI && process.env.OPENAI_API_KEY) {
       try {
         translatedText = await translateLyricLineWithOpenAIToLanguage(normalizedText, sourceLanguage, targetLanguage);
       } catch (_error) {
@@ -450,12 +564,28 @@ async function translateLyricLine(text, targetLanguage = "zh-CN") {
     }
 
     if (!translatedText) {
-      translatedText = await translateLyricLineWithMyMemory(normalizedText, sourceLanguage, targetLanguage);
+      try {
+        translatedText = await translateLyricLineWithMyMemory(normalizedText, sourceLanguage, targetLanguage);
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    if (!translatedText) {
+      try {
+        translatedText = await translateLyricLineWithGoogleFallback(normalizedText, targetLanguage);
+      } catch (error) {
+        lastError = error;
+      }
     }
 
     const cleanedTranslation = String(translatedText || "").trim();
     const finalText =
       cleanedTranslation && cleanedTranslation !== normalizedText ? cleanedTranslation : "";
+
+    if (!finalText && lastError) {
+      throw lastError;
+    }
 
     translationCache.set(cacheKey, finalText);
     return finalText;
@@ -493,11 +623,17 @@ function getUniqueLyricLinesForTranslation(lyrics, targetLanguage) {
 async function translateLyricsCollection(lyrics, targetLanguage) {
   const lines = getUniqueLyricLinesForTranslation(lyrics, targetLanguage);
   if (!lines.length) {
-    return {};
+    return {
+      translations: {},
+      errorMessage: ""
+    };
   }
 
   const sourceLanguage = detectSourceLanguage(lines[0]);
   const translations = {};
+  let openAIError = null;
+  let skipOpenAIForFallback = false;
+  let fallbackError = null;
 
   if (process.env.OPENAI_API_KEY) {
     try {
@@ -508,20 +644,52 @@ async function translateLyricsCollection(lyrics, targetLanguage) {
         translations[line] = translated && translated !== line ? translated : "";
       }
 
-      return translations;
-    } catch (_error) {
+      return {
+        translations,
+        errorMessage: ""
+      };
+    } catch (error) {
+      openAIError = error;
+      skipOpenAIForFallback = true;
       // Fall back to per-line translation below.
     }
   }
 
-  const settledResults = await Promise.allSettled(lines.map((line) => translateLyricLine(line, targetLanguage)));
+  const settledResults = await Promise.allSettled(
+    lines.map((line) =>
+      translateLyricLine(line, targetLanguage, {
+        skipOpenAI: skipOpenAIForFallback
+      })
+    )
+  );
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
     const result = settledResults[index];
-    translations[line] = result.status === "fulfilled" && result.value ? result.value : "";
+    if (result.status === "fulfilled" && result.value) {
+      translations[line] = result.value;
+      continue;
+    }
+
+    if (result.status === "rejected" && !fallbackError) {
+      fallbackError = result.reason;
+    }
+
+    translations[line] = "";
   }
 
-  return translations;
+  const hasSuccessfulTranslation = Object.values(translations).some(Boolean);
+  if (!hasSuccessfulTranslation && fallbackError) {
+    throw fallbackError;
+  }
+
+  if (!hasSuccessfulTranslation && openAIError && !shouldUseSimpleTranslationFallback(openAIError)) {
+    throw openAIError;
+  }
+
+  return {
+    translations,
+    errorMessage: ""
+  };
 }
 
 async function pretranslateLyricsForCurrentTrack(trackKey, lyrics, targetLanguage = "zh-CN") {
@@ -536,6 +704,10 @@ async function pretranslateLyricsForCurrentTrack(trackKey, lyrics, targetLanguag
       translationStatusByLanguage: {
         ...(lyrics.translationStatusByLanguage || {}),
         [targetLanguage]: "ready"
+      },
+      translationErrorByLanguage: {
+        ...(lyrics.translationErrorByLanguage || {}),
+        [targetLanguage]: ""
       },
       translationsByLanguage: {
         ...(lyrics.translationsByLanguage || {}),
@@ -554,6 +726,10 @@ async function pretranslateLyricsForCurrentTrack(trackKey, lyrics, targetLanguag
       ...(lyrics.translationStatusByLanguage || {}),
       [targetLanguage]: "loading"
     },
+    translationErrorByLanguage: {
+      ...(lyrics.translationErrorByLanguage || {}),
+      [targetLanguage]: ""
+    },
     translationsByLanguage: {
       ...(lyrics.translationsByLanguage || {}),
       [targetLanguage]: lyrics.translationsByLanguage?.[targetLanguage] || {}
@@ -564,7 +740,7 @@ async function pretranslateLyricsForCurrentTrack(trackKey, lyrics, targetLanguag
   }
 
   try {
-    const translations = await translateLyricsCollection(lyrics, targetLanguage);
+    const result = await translateLyricsCollection(lyrics, targetLanguage);
 
     if (trackKey !== cachedTrackKey) {
       return;
@@ -576,12 +752,16 @@ async function pretranslateLyricsForCurrentTrack(trackKey, lyrics, targetLanguag
         ...(cachedLyrics.translationStatusByLanguage || {}),
         [targetLanguage]: "ready"
       },
+      translationErrorByLanguage: {
+        ...(cachedLyrics.translationErrorByLanguage || {}),
+        [targetLanguage]: result.errorMessage || ""
+      },
       translationsByLanguage: {
         ...(cachedLyrics.translationsByLanguage || {}),
-        [targetLanguage]: translations
+        [targetLanguage]: result.translations
       }
     };
-  } catch (_error) {
+  } catch (error) {
     if (trackKey !== cachedTrackKey) {
       return;
     }
@@ -591,6 +771,10 @@ async function pretranslateLyricsForCurrentTrack(trackKey, lyrics, targetLanguag
       translationStatusByLanguage: {
         ...(cachedLyrics.translationStatusByLanguage || {}),
         [targetLanguage]: "error"
+      },
+      translationErrorByLanguage: {
+        ...(cachedLyrics.translationErrorByLanguage || {}),
+        [targetLanguage]: getUserFacingTranslationError(error)
       },
       translationsByLanguage: {
         ...(cachedLyrics.translationsByLanguage || {}),
@@ -830,6 +1014,11 @@ ipcMain.handle(PREPARE_TRANSLATION_CHANNEL, async (_event, targetLanguage) => {
 
   void pretranslateLyricsForCurrentTrack(cachedTrackKey, cachedLyrics, language);
   return { ok: true, status: "loading" };
+});
+
+ipcMain.handle(APP_QUIT_CHANNEL, () => {
+  app.quit();
+  return { ok: true };
 });
 
 app.whenReady().then(() => {

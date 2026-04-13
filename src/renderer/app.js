@@ -7,6 +7,7 @@ const fontDownButtonEl = document.getElementById("font-down");
 const fontUpButtonEl = document.getElementById("font-up");
 const toggleTranslationButtonEl = document.getElementById("toggle-translation");
 const translationLanguageSelectEl = document.getElementById("translation-language");
+const closeOverlayButtonEl = document.getElementById("close-overlay");
 
 const FONT_SIZE_STORAGE_KEY = "floating-lyrics-font-size";
 const TRANSLATION_ENABLED_STORAGE_KEY = "floating-lyrics-translation-enabled";
@@ -181,17 +182,29 @@ function getLivePositionMs() {
   return Math.min(snapshot.playback.durationMs || base, base + elapsed);
 }
 
-function renderLyricStack(text, translationText = "", translationLoading = false, translationUnavailable = false) {
+function renderLyricStack(
+  text,
+  translationText = "",
+  translationLoading = false,
+  translationUnavailable = false,
+  translationErrorMessage = ""
+) {
   let translationContent = translationText;
 
   if (translationLoading) {
     translationContent = "Translating...";
+  } else if (translationErrorMessage) {
+    translationContent = translationErrorMessage;
   } else if (translationUnavailable) {
     translationContent = "Translation unavailable";
   }
 
-  const translationMarkup = translationEnabled
-    ? `<p class="translation-line${translationLoading ? " is-loading" : ""}">${escapeHtml(
+  const showTranslationLine =
+    translationEnabled &&
+    (translationLoading || translationUnavailable || Boolean(translationErrorMessage) || Boolean(translationContent));
+
+  const translationMarkup = showTranslationLine
+    ? `<p class="translation-line${translationLoading ? " is-loading" : ""}${translationErrorMessage ? " is-error" : ""}">${escapeHtml(
         translationContent
       )}</p>`
     : "";
@@ -310,7 +323,13 @@ function requestCurrentLanguagePreparation() {
   const status = snapshot.lyrics.translationStatusByLanguage?.[translationLanguage];
   const trackLanguageKey = getTrackLanguageKey();
 
-  if (!trackLanguageKey.trim() || status === "ready" || status === "loading" || translationPreparationInFlight.has(trackLanguageKey)) {
+  if (
+    !trackLanguageKey.trim() ||
+    status === "ready" ||
+    status === "loading" ||
+    status === "error" ||
+    translationPreparationInFlight.has(trackLanguageKey)
+  ) {
     return;
   }
 
@@ -364,6 +383,7 @@ function renderLyrics() {
     const segmentMeta = getSyncedSegmentMeta(activeLine.text, activeLine.startMs, activeLine.endMs);
     const fullTranslation = lyrics.translationsByLanguage?.[translationLanguage]?.[activeLine.text] || "";
     const translationStatus = lyrics.translationStatusByLanguage?.[translationLanguage] || "idle";
+    const translationErrorMessage = lyrics.translationErrorByLanguage?.[translationLanguage] || "";
     const translationText = fullTranslation
       ? getTranslationSegment(fullTranslation, segmentMeta.index, segmentMeta.total)
       : "";
@@ -371,7 +391,10 @@ function renderLyrics() {
       segmentMeta.text || "...",
       translationText,
       translationEnabled && translationStatus === "loading" && !fullTranslation,
-      translationEnabled && translationStatus === "ready" && !fullTranslation
+      translationEnabled && translationStatus === "ready" && !fullTranslation && !translationErrorMessage,
+      translationEnabled && translationStatus === "error" && !fullTranslation
+        ? translationErrorMessage || "Translation service error"
+        : ""
     );
     requestCurrentLanguagePreparation();
     return;
@@ -382,6 +405,7 @@ function renderLyrics() {
     const segmentMeta = getPlainSegmentMeta(fullText);
     const fullTranslation = lyrics.translationsByLanguage?.[translationLanguage]?.[fullText] || "";
     const translationStatus = lyrics.translationStatusByLanguage?.[translationLanguage] || "idle";
+    const translationErrorMessage = lyrics.translationErrorByLanguage?.[translationLanguage] || "";
     const translationText = fullTranslation
       ? getTranslationSegment(fullTranslation, segmentMeta.index, segmentMeta.total)
       : "";
@@ -389,7 +413,10 @@ function renderLyrics() {
       segmentMeta.text || "...",
       translationText,
       translationEnabled && translationStatus === "loading" && !fullTranslation,
-      translationEnabled && translationStatus === "ready" && !fullTranslation
+      translationEnabled && translationStatus === "ready" && !fullTranslation && !translationErrorMessage,
+      translationEnabled && translationStatus === "error" && !fullTranslation
+        ? translationErrorMessage || "Translation service error"
+        : ""
     );
     requestCurrentLanguagePreparation();
     return;
@@ -503,6 +530,10 @@ translationLanguageSelectEl.addEventListener("change", () => {
   translationLanguage = translationLanguageSelectEl.value;
   saveTranslationLanguage();
   render();
+});
+
+bindControl(closeOverlayButtonEl, () => {
+  window.floatingLyrics.quitApp();
 });
 
 overlayCardEl.addEventListener(

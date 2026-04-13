@@ -263,10 +263,11 @@ body {
   color: var(--text-primary);
   font-size: var(--lyrics-font-size);
   font-weight: 700;
-  line-height: 1.16;
+  line-height: 1.24;
   letter-spacing: -0.03em;
   text-align: center;
   white-space: nowrap;
+  padding: 0.06em 0 0.16em;
   overflow: hidden;
   text-overflow: clip;
   text-shadow: var(--lyrics-text-shadow);
@@ -278,9 +279,10 @@ body {
   max-width: min(92%, 860px);
   color: var(--text-translation);
   font-size: 15px;
-  line-height: 1.28;
+  line-height: 1.34;
   text-align: center;
   white-space: nowrap;
+  padding-bottom: 0.08em;
   overflow: hidden;
   text-overflow: ellipsis;
   opacity: 0.95;

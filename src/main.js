@@ -6,6 +6,7 @@ const { promisify } = require("util");
 const execFileAsync = promisify(execFile);
 const WINDOWS_BRIDGE_SCRIPT = path.join(__dirname, "..", "scripts", "windows_spotify_bridge.ps1");
 const POLL_INTERVAL_MS = 500;
+const PLAYBACK_JITTER_TOLERANCE_MS = 900;
 const STATE_CHANNEL = "lyrics:state";
 const PLAYER_CONTROL_CHANNEL = "spotify:player-control";
 const PREPARE_TRANSLATION_CHANNEL = "lyrics:prepare-translation";
@@ -18,6 +19,8 @@ let latestSnapshot = createEmptySnapshot();
 let cachedTrackKey = "";
 let cachedLyrics = createLyricsState("idle");
 let refreshBurstTimers = [];
+let refreshInFlight = false;
+let refreshQueued = false;
 const translationCache = new Map();
 const translationInFlight = new Map();
 
@@ -1196,14 +1199,28 @@ async function getLyricsForPlayback(playback) {
   cachedLyrics = createLyricsState("loading", {
     message: "正在搜索歌词..."
   });
+  latestSnapshot = {
+    ...latestSnapshot,
+    playback,
+    lyrics: cachedLyrics
+  };
   broadcastState();
 
   try {
-    cachedLyrics = await searchLyricsWithFallback(playback);
+    const resolvedLyrics = await searchLyricsWithFallback(playback);
+    if (nextTrackKey !== cachedTrackKey) {
+      return cachedLyrics;
+    }
+
+    cachedLyrics = resolvedLyrics;
     const readyLyrics = cachedLyrics;
     const trackKeyForTranslation = nextTrackKey;
     void pretranslateLyricsForCurrentTrack(trackKeyForTranslation, readyLyrics, "zh-CN");
   } catch (error) {
+    if (nextTrackKey !== cachedTrackKey) {
+      return cachedLyrics;
+    }
+
     cachedLyrics = createLyricsState("error", {
       message: "歌词服务暂时不可用。",
       error: error.message
@@ -1278,7 +1295,37 @@ function clearRefreshBurst() {
   refreshBurstTimers = [];
 }
 
-async function refreshState() {
+function stabilizePlaybackPosition(previousPlayback, nextPlayback) {
+  if (!previousPlayback || !nextPlayback) {
+    return nextPlayback;
+  }
+
+  if (
+    previousPlayback.state !== "playing" ||
+    nextPlayback.state !== "playing" ||
+    getTrackKey(previousPlayback) !== getTrackKey(nextPlayback)
+  ) {
+    return nextPlayback;
+  }
+
+  const previousSampledAt = Number(previousPlayback.sampledAt || 0);
+  const previousPositionMs = Number(previousPlayback.positionMs || 0);
+  const nextPositionMs = Number(nextPlayback.positionMs || 0);
+  const elapsedSincePreviousSample = Math.max(0, Date.now() - previousSampledAt);
+  const projectedPositionMs = previousPositionMs + elapsedSincePreviousSample;
+  const rewindDeltaMs = projectedPositionMs - nextPositionMs;
+
+  if (rewindDeltaMs <= 0 || rewindDeltaMs > PLAYBACK_JITTER_TOLERANCE_MS) {
+    return nextPlayback;
+  }
+
+  return {
+    ...nextPlayback,
+    positionMs: Math.min(nextPlayback.durationMs || projectedPositionMs, projectedPositionMs)
+  };
+}
+
+async function performRefreshState() {
   const playbackBeforeFetch = await getSpotifyPlayback();
   const refreshStartedAt = Date.now();
   const lyrics = await getLyricsForPlayback(playbackBeforeFetch);
@@ -1296,11 +1343,29 @@ async function refreshState() {
 
   latestSnapshot = {
     ...latestSnapshot,
-    playback,
+    playback: stabilizePlaybackPosition(latestSnapshot.playback, playback),
     lyrics
   };
 
   broadcastState();
+}
+
+async function refreshState() {
+  if (refreshInFlight) {
+    refreshQueued = true;
+    return;
+  }
+
+  refreshInFlight = true;
+
+  try {
+    do {
+      refreshQueued = false;
+      await performRefreshState();
+    } while (refreshQueued);
+  } finally {
+    refreshInFlight = false;
+  }
 }
 
 function scheduleRefreshBurst() {

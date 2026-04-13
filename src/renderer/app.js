@@ -5,19 +5,29 @@ const togglePlaybackButtonEl = document.getElementById("toggle-playback");
 const nextTrackButtonEl = document.getElementById("next-track");
 const fontDownButtonEl = document.getElementById("font-down");
 const fontUpButtonEl = document.getElementById("font-up");
+const timingBackwardButtonEl = document.getElementById("timing-backward");
+const timingForwardButtonEl = document.getElementById("timing-forward");
 const toggleTranslationButtonEl = document.getElementById("toggle-translation");
 const toggleThemeButtonEl = document.getElementById("toggle-theme");
 const translationLanguageSelectEl = document.getElementById("translation-language");
 const closeOverlayButtonEl = document.getElementById("close-overlay");
 
 const FONT_SIZE_STORAGE_KEY = "floating-lyrics-font-size";
+const LYRIC_TIMING_OFFSET_STORAGE_KEY = "floating-lyrics-timing-offset-ms";
 const TRANSLATION_ENABLED_STORAGE_KEY = "floating-lyrics-translation-enabled";
 const TRANSLATION_LANGUAGE_STORAGE_KEY = "floating-lyrics-translation-language";
 const OVERLAY_THEME_STORAGE_KEY = "floating-lyrics-overlay-theme";
 const MIN_FONT_SIZE = 20;
 const MAX_FONT_SIZE = 64;
 const FONT_STEP = 2;
+const LYRIC_TIMING_STEP_MS = 120;
+const MAX_LYRIC_TIMING_OFFSET_MS = 5000;
 const PLAIN_SEGMENT_MS = 1600;
+const PLAYING_RENDER_INTERVAL_MS = 120;
+const PLAYBACK_LOOKAHEAD_MS = 140;
+const SYNCED_LINE_SWITCH_LOOKAHEAD_MS = 140;
+const SYNCED_LINE_BACKTRACK_GUARD_MS = 320;
+const DISPLAY_POSITION_SEEK_RESET_MS = 1800;
 const DEFAULT_OVERLAY_THEME = "clear";
 const DARK_OVERLAY_THEME = "dark";
 const TRANSLATION_LANGUAGES = [
@@ -49,11 +59,21 @@ let snapshot = {
 };
 
 let fontSizePx = loadFontSize();
+let lyricTimingOffsetMs = loadLyricTimingOffset();
 let translationEnabled = loadTranslationEnabled();
 let translationLanguage = loadTranslationLanguage();
 let overlayTheme = loadOverlayTheme();
 let activeControlAction = "";
 let textMeasureCanvas;
+let lastSyncedLineState = {
+  trackKey: "",
+  index: 0
+};
+let lastDisplayedPlaybackState = {
+  trackKey: "",
+  positionMs: 0,
+  playbackState: "stopped"
+};
 const translationPreparationInFlight = new Set();
 
 function escapeHtml(text) {
@@ -74,6 +94,16 @@ function loadFontSize() {
   }
 
   return 30;
+}
+
+function loadLyricTimingOffset() {
+  const storedValue = Number(window.localStorage.getItem(LYRIC_TIMING_OFFSET_STORAGE_KEY));
+
+  if (Number.isFinite(storedValue)) {
+    return Math.max(-MAX_LYRIC_TIMING_OFFSET_MS, Math.min(MAX_LYRIC_TIMING_OFFSET_MS, storedValue));
+  }
+
+  return 0;
 }
 
 function loadTranslationEnabled() {
@@ -97,6 +127,10 @@ function loadOverlayTheme() {
 
 function saveFontSize() {
   window.localStorage.setItem(FONT_SIZE_STORAGE_KEY, String(fontSizePx));
+}
+
+function saveLyricTimingOffset() {
+  window.localStorage.setItem(LYRIC_TIMING_OFFSET_STORAGE_KEY, String(lyricTimingOffsetMs));
 }
 
 function saveTranslationEnabled() {
@@ -123,6 +157,21 @@ function adjustFontSize(delta) {
   fontSizePx = Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, fontSizePx + delta));
   applyFontSize();
   saveFontSize();
+  renderLyrics();
+}
+
+function formatTimingOffsetLabel(offsetMs) {
+  const seconds = Math.abs(offsetMs / 1000).toFixed(2);
+  return `${offsetMs >= 0 ? "+" : "-"}${seconds}s`;
+}
+
+function adjustLyricTimingOffset(deltaMs) {
+  lyricTimingOffsetMs = Math.max(
+    -MAX_LYRIC_TIMING_OFFSET_MS,
+    Math.min(MAX_LYRIC_TIMING_OFFSET_MS, lyricTimingOffsetMs + deltaMs)
+  );
+  saveLyricTimingOffset();
+  updateTimingButtons();
   renderLyrics();
 }
 
@@ -193,14 +242,42 @@ function splitLyricIntoSegments(text, maxWidth) {
 }
 
 function getLivePositionMs() {
+  const trackKey = getPlaybackTrackKey();
   const base = snapshot.playback.positionMs || 0;
+  let livePositionMs = Math.max(0, base + lyricTimingOffsetMs);
+
   if (snapshot.playback.state !== "playing") {
-    return base;
+    lastDisplayedPlaybackState = {
+      trackKey,
+      positionMs: livePositionMs,
+      playbackState: snapshot.playback.state
+    };
+    return livePositionMs;
   }
 
   const sampledAt = Number(snapshot.playback.sampledAt || snapshot.fetchedAt || Date.now());
   const elapsed = Math.max(0, Date.now() - sampledAt);
-  return Math.min(snapshot.playback.durationMs || base, base + elapsed);
+  const adjustedPositionMs = base + elapsed + PLAYBACK_LOOKAHEAD_MS + lyricTimingOffsetMs;
+  livePositionMs = Math.max(0, Math.min(snapshot.playback.durationMs || Math.max(base, adjustedPositionMs), adjustedPositionMs));
+
+  if (
+    lastDisplayedPlaybackState.trackKey === trackKey &&
+    lastDisplayedPlaybackState.playbackState === "playing"
+  ) {
+    const rewindDeltaMs = lastDisplayedPlaybackState.positionMs - livePositionMs;
+
+    if (rewindDeltaMs > 0 && rewindDeltaMs < DISPLAY_POSITION_SEEK_RESET_MS) {
+      livePositionMs = lastDisplayedPlaybackState.positionMs;
+    }
+  }
+
+  lastDisplayedPlaybackState = {
+    trackKey,
+    positionMs: livePositionMs,
+    playbackState: snapshot.playback.state
+  };
+
+  return livePositionMs;
 }
 
 function renderLyricStack(
@@ -262,15 +339,35 @@ function setControlsDisabled(disabled) {
 
 function getActiveSyncedLineMeta(lines) {
   const positionMs = getLivePositionMs();
+  const trackKey = getPlaybackTrackKey();
   let activeIndex = 0;
 
-  for (let index = 0; index < lines.length; index += 1) {
-    if (lines[index].timeMs <= positionMs) {
-      activeIndex = index;
-    } else {
-      break;
-    }
+  if (lastSyncedLineState.trackKey === trackKey) {
+    activeIndex = Math.min(lastSyncedLineState.index, lines.length - 1);
   }
+
+  while (activeIndex < lines.length - 1) {
+    const nextLine = lines[activeIndex + 1];
+    if (positionMs >= nextLine.timeMs - SYNCED_LINE_SWITCH_LOOKAHEAD_MS) {
+      activeIndex += 1;
+      continue;
+    }
+    break;
+  }
+
+  while (activeIndex > 0) {
+    const currentLine = lines[activeIndex];
+    if (positionMs < currentLine.timeMs - SYNCED_LINE_BACKTRACK_GUARD_MS) {
+      activeIndex -= 1;
+      continue;
+    }
+    break;
+  }
+
+  lastSyncedLineState = {
+    trackKey,
+    index: activeIndex
+  };
 
   return {
     text: lines[activeIndex]?.text || "",
@@ -327,6 +424,41 @@ function getPlainSegmentMeta(text) {
   };
 }
 
+function getActivePlainLineMeta(lines) {
+  const flattenedSegments = [];
+
+  for (const line of lines) {
+    const fullText = String(line?.text || line || "").trim();
+    if (!fullText) {
+      continue;
+    }
+
+    const segments = getSegments(fullText);
+    const normalizedSegments = segments.length ? segments : [fullText];
+
+    for (let index = 0; index < normalizedSegments.length; index += 1) {
+      flattenedSegments.push({
+        fullText,
+        text: normalizedSegments[index],
+        index,
+        total: normalizedSegments.length
+      });
+    }
+  }
+
+  if (!flattenedSegments.length) {
+    return {
+      fullText: "",
+      text: "",
+      index: 0,
+      total: 1
+    };
+  }
+
+  const activeIndex = Math.floor(Date.now() / PLAIN_SEGMENT_MS) % flattenedSegments.length;
+  return flattenedSegments[activeIndex];
+}
+
 function getTranslationSegment(fullTranslation, index, total) {
   const segments = getSegments(fullTranslation);
 
@@ -340,6 +472,10 @@ function getTranslationSegment(fullTranslation, index, total) {
 
 function getTrackLanguageKey() {
   return `${snapshot.playback.artist || ""}::${snapshot.playback.title || ""}::${translationLanguage}`;
+}
+
+function getPlaybackTrackKey() {
+  return `${snapshot.playback.artist || ""}::${snapshot.playback.title || ""}`;
 }
 
 function requestCurrentLanguagePreparation() {
@@ -438,8 +574,8 @@ function renderLyrics() {
   }
 
   if (lyrics.kind === "plain" && lyrics.lines.length) {
-    const fullText = lyrics.lines[0]?.text || lyrics.lines[0] || "";
-    const segmentMeta = getPlainSegmentMeta(fullText);
+    const segmentMeta = getActivePlainLineMeta(lyrics.lines);
+    const fullText = segmentMeta.fullText || "";
     const fullTranslation = lyrics.translationsByLanguage?.[translationLanguage]?.[fullText] || "";
     const translationStatus = lyrics.translationStatusByLanguage?.[translationLanguage] || "idle";
     const translationErrorMessage = lyrics.translationErrorByLanguage?.[translationLanguage] || "";
@@ -470,6 +606,14 @@ function updateTranslationButton() {
   toggleTranslationButtonEl.classList.toggle("is-active", translationEnabled);
 }
 
+function updateTimingButtons() {
+  const offsetLabel = formatTimingOffsetLabel(lyricTimingOffsetMs);
+  timingBackwardButtonEl.title = `Delay lyrics by ${LYRIC_TIMING_STEP_MS}ms. Current offset: ${offsetLabel}`;
+  timingForwardButtonEl.title = `Advance lyrics by ${LYRIC_TIMING_STEP_MS}ms. Current offset: ${offsetLabel}`;
+  timingBackwardButtonEl.classList.toggle("is-active", lyricTimingOffsetMs < 0);
+  timingForwardButtonEl.classList.toggle("is-active", lyricTimingOffsetMs > 0);
+}
+
 function updateThemeButton() {
   const darkModeEnabled = overlayTheme === DARK_OVERLAY_THEME;
   toggleThemeButtonEl.classList.toggle("is-active", darkModeEnabled);
@@ -485,6 +629,7 @@ function updateTranslationLanguageControl() {
 function render() {
   updateTransportButton();
   updateTranslationButton();
+  updateTimingButtons();
   updateThemeButton();
   updateTranslationLanguageControl();
   renderLyrics();
@@ -533,6 +678,18 @@ function bindControl(button, handler) {
 }
 
 window.floatingLyrics.onStateChange((nextSnapshot) => {
+  if (getPlaybackTrackKey() !== `${nextSnapshot?.playback?.artist || ""}::${nextSnapshot?.playback?.title || ""}`) {
+    lastSyncedLineState = {
+      trackKey: "",
+      index: 0
+    };
+    lastDisplayedPlaybackState = {
+      trackKey: "",
+      positionMs: 0,
+      playbackState: "stopped"
+    };
+  }
+
   snapshot = nextSnapshot;
   render();
 });
@@ -555,6 +712,14 @@ bindControl(fontDownButtonEl, () => {
 
 bindControl(fontUpButtonEl, () => {
   adjustFontSize(FONT_STEP);
+});
+
+bindControl(timingBackwardButtonEl, () => {
+  adjustLyricTimingOffset(-LYRIC_TIMING_STEP_MS);
+});
+
+bindControl(timingForwardButtonEl, () => {
+  adjustLyricTimingOffset(LYRIC_TIMING_STEP_MS);
 });
 
 bindControl(toggleTranslationButtonEl, () => {
@@ -612,6 +777,6 @@ setInterval(() => {
   if (snapshot.playback.state === "playing") {
     renderLyrics();
   }
-}, 250);
+}, PLAYING_RENDER_INTERVAL_MS);
 
 render();

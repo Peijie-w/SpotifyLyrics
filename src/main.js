@@ -4,6 +4,7 @@ const { execFile } = require("child_process");
 const { promisify } = require("util");
 
 const execFileAsync = promisify(execFile);
+const WINDOWS_BRIDGE_SCRIPT = path.join(__dirname, "..", "scripts", "windows_spotify_bridge.ps1");
 const POLL_INTERVAL_MS = 500;
 const STATE_CHANNEL = "lyrics:state";
 const PLAYER_CONTROL_CHANNEL = "spotify:player-control";
@@ -157,7 +158,51 @@ async function runSpotifyJxa(scriptBody) {
   return JSON.parse(stdout.trim());
 }
 
+async function runWindowsSpotifyBridge(args) {
+  const { stdout } = await execFileAsync(
+    "powershell.exe",
+    ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", WINDOWS_BRIDGE_SCRIPT, ...args],
+    {
+      timeout: 7000
+    }
+  );
+
+  return JSON.parse(stdout.trim());
+}
+
 async function getSpotifyPlayback() {
+  if (process.platform === "win32") {
+    try {
+      return await runWindowsSpotifyBridge(["-Mode", "status"]);
+    } catch (error) {
+      return {
+        running: false,
+        state: "error",
+        title: "",
+        artist: "",
+        album: "",
+        durationMs: 0,
+        positionMs: 0,
+        error: error.message || "",
+        errorType: "windows-media-session-failed"
+      };
+    }
+  }
+
+  if (process.platform !== "darwin") {
+    return {
+      running: false,
+      state: "error",
+      title: "",
+      artist: "",
+      album: "",
+      durationMs: 0,
+      positionMs: 0,
+      error: `Unsupported platform: ${process.platform}`,
+      errorType: "unsupported-platform"
+    };
+  }
+
   try {
     return await runSpotifyJxa(`
       if (!spotify.running()) {
@@ -205,6 +250,17 @@ async function getSpotifyPlayback() {
 }
 
 async function controlSpotify(action) {
+  if (process.platform === "win32") {
+    return runWindowsSpotifyBridge(["-Mode", "control", "-Action", action]);
+  }
+
+  if (process.platform !== "darwin") {
+    return {
+      ok: false,
+      reason: "unsupported-platform"
+    };
+  }
+
   const actionMap = {
     previous: "previousTrack",
     next: "nextTrack",
@@ -397,7 +453,10 @@ async function translateLyricLine(text, targetLanguage = "zh-CN") {
       translatedText = await translateLyricLineWithMyMemory(normalizedText, sourceLanguage, targetLanguage);
     }
 
-    const finalText = translatedText || normalizedText;
+    const cleanedTranslation = String(translatedText || "").trim();
+    const finalText =
+      cleanedTranslation && cleanedTranslation !== normalizedText ? cleanedTranslation : "";
+
     translationCache.set(cacheKey, finalText);
     return finalText;
   })();
@@ -446,7 +505,7 @@ async function translateLyricsCollection(lyrics, targetLanguage) {
 
       for (const line of lines) {
         const translated = batchResult.get(line);
-        translations[line] = translated || line;
+        translations[line] = translated && translated !== line ? translated : "";
       }
 
       return translations;
@@ -459,7 +518,7 @@ async function translateLyricsCollection(lyrics, targetLanguage) {
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
     const result = settledResults[index];
-    translations[line] = result.status === "fulfilled" && result.value ? result.value : line;
+    translations[line] = result.status === "fulfilled" && result.value ? result.value : "";
   }
 
   return translations;

@@ -28,7 +28,7 @@ Spotify client plugins are not a great fit for true system-level floating lyrics
 
 ## Current Behavior
 
-- Platform: macOS
+- Platform: macOS, Windows
 - Playback source: local Spotify desktop client
 - Lyrics source: `lrclib.net`
 - UI style: text-first floating overlay
@@ -40,6 +40,12 @@ Spotify client plugins are not a great fit for true system-level floating lyrics
 ```bash
 npm install
 npm start
+```
+
+On Windows, you can also use:
+
+```bat
+scripts\launch_windows.bat
 ```
 
 ## Desktop Launcher
@@ -58,6 +64,7 @@ The launcher now also loads environment variables from these locations before st
 The launcher scripts in this repo are:
 
 - [scripts/launch_app.sh](/Users/peijiewang/Documents/spotify/scripts/launch_app.sh)
+- [scripts/launch_windows.bat](/Users/peijiewang/Documents/spotify/scripts/launch_windows.bat)
 - [scripts/Spotify Floating Lyrics Launcher.applescript](/Users/peijiewang/Documents/spotify/scripts/Spotify%20Floating%20Lyrics%20Launcher.applescript)
 
 ## First Launch Notes

@@ -181,10 +181,18 @@ function getLivePositionMs() {
   return Math.min(snapshot.playback.durationMs || base, base + elapsed);
 }
 
-function renderLyricStack(text, translationText = "", translationLoading = false) {
+function renderLyricStack(text, translationText = "", translationLoading = false, translationUnavailable = false) {
+  let translationContent = translationText;
+
+  if (translationLoading) {
+    translationContent = "Translating...";
+  } else if (translationUnavailable) {
+    translationContent = "Translation unavailable";
+  }
+
   const translationMarkup = translationEnabled
     ? `<p class="translation-line${translationLoading ? " is-loading" : ""}">${escapeHtml(
-        translationLoading ? "Translating..." : translationText
+        translationContent
       )}</p>`
     : "";
 
@@ -362,7 +370,8 @@ function renderLyrics() {
     renderLyricStack(
       segmentMeta.text || "...",
       translationText,
-      translationEnabled && translationStatus === "loading" && !fullTranslation
+      translationEnabled && translationStatus === "loading" && !fullTranslation,
+      translationEnabled && translationStatus === "ready" && !fullTranslation
     );
     requestCurrentLanguagePreparation();
     return;
@@ -379,7 +388,8 @@ function renderLyrics() {
     renderLyricStack(
       segmentMeta.text || "...",
       translationText,
-      translationEnabled && translationStatus === "loading" && !fullTranslation
+      translationEnabled && translationStatus === "loading" && !fullTranslation,
+      translationEnabled && translationStatus === "ready" && !fullTranslation
     );
     requestCurrentLanguagePreparation();
     return;

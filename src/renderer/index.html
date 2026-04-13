@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Spotify Floating Lyrics</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="overlay-shell">
+      <section class="overlay-card" id="overlay-card">
+        <div class="control-bar" aria-label="播放器控制">
+          <button class="control-button" id="font-down" type="button" aria-label="缩小歌词">
+            A-
+          </button>
+          <button class="control-button" id="previous-track" type="button" aria-label="上一首">
+            ‹‹
+          </button>
+          <button class="control-button control-button--primary" id="toggle-playback" type="button" aria-label="播放或暂停">
+            ❚❚
+          </button>
+          <button class="control-button" id="next-track" type="button" aria-label="下一首">
+            ››
+          </button>
+          <button class="control-button" id="font-up" type="button" aria-label="放大歌词">
+            A+
+          </button>
+        </div>
+
+        <section class="lyrics-panel" id="lyrics-panel"></section>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

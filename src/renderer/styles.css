@@ -1,0 +1,178 @@
+:root {
+  color-scheme: dark;
+  --text-primary: #f8fafc;
+  --text-muted: rgba(196, 205, 218, 0.62);
+  --accent-soft: rgba(113, 231, 178, 0.18);
+  --control-bg: rgba(7, 10, 14, 0.52);
+  --control-border: rgba(255, 255, 255, 0.1);
+  --control-shadow: rgba(2, 6, 12, 0.22);
+  --lyrics-font-size: 30px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  font-family: "Avenir Next", "SF Pro Display", "Helvetica Neue", sans-serif;
+  background: transparent;
+  color: var(--text-primary);
+}
+
+body {
+  user-select: none;
+  overflow: hidden;
+  cursor: default;
+}
+
+.overlay-shell {
+  width: 100%;
+  height: 100%;
+  cursor: default;
+}
+
+.overlay-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 30px 24px 18px;
+  -webkit-app-region: drag;
+  cursor: default;
+  overflow: hidden;
+}
+
+.control-bar,
+.lyrics-panel {
+  position: relative;
+  z-index: 1;
+}
+
+.control-bar {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  border: 1px solid var(--control-border);
+  border-radius: 999px;
+  background: var(--control-bg);
+  box-shadow: 0 10px 24px var(--control-shadow);
+  backdrop-filter: blur(16px) saturate(130%);
+  -webkit-app-region: no-drag;
+  opacity: 0;
+  transform: translateX(-50%) translateY(-6px);
+  transition: opacity 140ms ease, transform 140ms ease;
+  pointer-events: none;
+}
+
+.overlay-card:hover .control-bar,
+.overlay-card:focus-within .control-bar {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+  pointer-events: auto;
+}
+
+.control-button {
+  min-width: 38px;
+  height: 34px;
+  padding: 0 11px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(248, 250, 252, 0.78);
+  font-size: 13px;
+  font-weight: 700;
+  -webkit-app-region: no-drag;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: manipulation;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease, transform 140ms ease;
+}
+
+.control-button:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+  transform: translateY(-1px);
+}
+
+.control-button:active {
+  transform: translateY(0) scale(0.97);
+}
+
+.control-button:disabled {
+  opacity: 0.58;
+  transform: none;
+}
+
+.control-button--primary {
+  background: var(--accent-soft);
+  color: #def7ea;
+}
+
+.lyrics-panel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  cursor: default;
+}
+
+.lyrics-state {
+  margin: 0;
+  max-width: 100%;
+  color: var(--text-muted);
+  font-size: 15px;
+  line-height: 1.3;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.single-line {
+  margin: 0;
+  width: 100%;
+  max-width: 100%;
+  color: var(--text-primary);
+  font-size: var(--lyrics-font-size);
+  font-weight: 700;
+  line-height: 1.16;
+  letter-spacing: -0.03em;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
+  text-shadow:
+    0 2px 14px rgba(0, 0, 0, 0.36),
+    0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+@media (max-width: 720px) {
+  .overlay-card {
+    padding: 34px 18px 14px;
+  }
+
+  .control-bar {
+    gap: 6px;
+    padding: 5px;
+  }
+
+  .control-button {
+    min-width: 34px;
+    height: 31px;
+    padding: 0 9px;
+    font-size: 12px;
+  }
+}

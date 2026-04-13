@@ -1,0 +1,21 @@
+{
+  "name": "spotify-floating-lyrics",
+  "version": "0.1.0",
+  "description": "A macOS desktop floating lyrics overlay for Spotify.",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "keywords": [
+    "spotify",
+    "lyrics",
+    "electron",
+    "overlay",
+    "macos"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "electron": "^37.0.0"
+  }
+}

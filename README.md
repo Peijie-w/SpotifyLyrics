@@ -1,59 +1,127 @@
 # Spotify Floating Lyrics
 
-一个给 macOS 用的 Spotify 桌面悬浮歌词小应用。
+[English](./README.md) | [简体中文](./README.zh-CN.md)
 
-它不是嵌在 Spotify 窗口里的皮肤插件，而是一个独立透明悬浮窗：
+A lightweight macOS desktop lyrics overlay for Spotify.
 
-- 自动读取 Spotify 当前播放歌曲
-- 自动拉取歌词
-- 有时间轴时逐行高亮
-- 无时间轴时退化成静态歌词
-- 支持始终置顶和鼠标点击穿透
+This project is not a theme injected into the Spotify client. It runs as a separate floating window on top of your desktop and shows the current lyric line while Spotify is playing.
 
-## 为什么做成独立悬浮窗
+## Features
 
-Spotify 客户端内部插件很难直接创建系统级桌面悬浮层。为了真正实现“桌面虚浮歌词”，这个版本采用了更实用的方式：
+- Reads the currently playing track from the Spotify desktop app on macOS
+- Fetches lyrics automatically from `lrclib.net`
+- Keeps a consistent lyric font size
+- Splits very long lyric lines into sequential segments instead of shrinking the text dynamically
+- Shows a clean text-only overlay by default
+- Supports an optional translation line under the current lyric
+- Reveals hover controls for previous track, play/pause, next track, and font size
+- Supports dragging the overlay anywhere on screen
+- Includes a desktop launcher app for one-click startup
 
-- 用 Electron 创建桌面透明浮层
-- 用 macOS 的 AppleScript 读取 Spotify 播放状态
-- 用在线歌词服务获取歌词
+## Why It Is Built As A Separate Overlay
 
-## 当前实现
+Spotify client plugins are not a great fit for true system-level floating lyrics. To make the overlay behave like a desktop lyric widget, this app uses:
 
-- 平台：macOS
-- 播放信息来源：本地 Spotify 桌面客户端
-- 歌词来源：`lrclib.net`
-- UI：透明玻璃态悬浮窗
+- Electron for the transparent always-on-top window
+- AppleScript / JXA to read and control Spotify on macOS
+- An online lyrics source for synced and plain lyric fallback
 
-## 运行方式
+## Current Behavior
+
+- Platform: macOS
+- Playback source: local Spotify desktop client
+- Lyrics source: `lrclib.net`
+- UI style: text-first floating overlay
+- Hover controls: previous, play/pause, next, font size down, font size up
+- Translation toggle: show a translated line under the current lyric
+
+## Run Locally
 
 ```bash
 npm install
 npm start
 ```
 
-## 首次运行注意
+## Desktop Launcher
 
-第一次读取 Spotify 时，macOS 可能会弹出自动化权限提示。请允许当前应用控制 Spotify，否则无法读取当前播放歌曲。
+A desktop launcher app is generated here:
 
-如果没有弹窗，可以手动到：
+[`/Users/peijiewang/Desktop/Spotify Floating Lyrics.app`](/Users/peijiewang/Desktop/Spotify%20Floating%20Lyrics.app)
 
-`系统设置 > 隐私与安全性 > 自动化`
+You can launch the app by double-clicking that icon instead of running a terminal command.
 
-确认终端或应用有权限控制 Spotify。
+The launcher now also loads environment variables from these locations before startup:
 
-## 交互说明
+- `./.env.local`
+- `./.env`
 
-- 直接拖动悬浮窗任意空白区域即可移动位置
-- 点击右上角按钮可以切换“鼠标穿透”
-- 如果切成穿透后不方便点回来，可以用快捷键 `Command/Ctrl + Shift + L` 恢复
+The launcher scripts in this repo are:
 
-## 目录结构
+- [scripts/launch_app.sh](/Users/peijiewang/Documents/spotify/scripts/launch_app.sh)
+- [scripts/Spotify Floating Lyrics Launcher.applescript](/Users/peijiewang/Documents/spotify/scripts/Spotify%20Floating%20Lyrics%20Launcher.applescript)
+
+## First Launch Notes
+
+The first time the app tries to read or control Spotify, macOS may ask for Automation permission. You need to allow it, otherwise the overlay cannot read playback state or control track playback.
+
+If the prompt does not appear, check:
+
+`System Settings > Privacy & Security > Automation`
+
+and make sure the relevant app is allowed to control Spotify.
+
+## Interaction
+
+- Drag the lyric area to move the overlay
+- Hover over the overlay to reveal playback controls
+- Use `A-` and `A+` to change the global lyric font size
+- Use `译` to toggle a translated line under the current lyric
+- Long lyric lines are shown in sequential segments at the same font size
+
+## Better Translation Quality
+
+The built-in fallback translation is a general machine translation service, so some lyric lines can feel too literal.
+
+If you want more natural lyric-style translation, you can launch the app with an OpenAI API key:
+
+```bash
+OPENAI_API_KEY=your_key_here npm start
+```
+
+Optional:
+
+```bash
+OPENAI_TRANSLATION_MODEL=gpt-4.1-mini OPENAI_API_KEY=your_key_here npm start
+```
+
+When `OPENAI_API_KEY` is present, the app will prefer a lyric-aware translation prompt and fall back to the normal translation service if that request fails.
+
+If you want the desktop launcher app to use the same higher-quality translation, create a local env file:
+
+```bash
+cp .env.example .env.local
+```
+
+Then fill in your key:
+
+```bash
+OPENAI_API_KEY=your_key_here
+OPENAI_TRANSLATION_MODEL=gpt-4.1-mini
+```
+
+After that, double-clicking the desktop app will also use the better translation path.
+
+## Project Structure
 
 ```text
 .
 ├── package.json
+├── package-lock.json
 ├── README.md
+├── README.zh-CN.md
+├── scripts
+│   ├── Spotify Floating Lyrics Launcher.applescript
+│   └── launch_app.sh
 └── src
     ├── main.js
     ├── preload.js
@@ -63,11 +131,11 @@ npm start
         └── styles.css
 ```
 
-## 后续可继续加的能力
+## Ideas For Future Improvements
 
-- 切换字体、字号、透明度
-- 锁定位置和大小
-- 多歌词源 fallback
-- 翻译歌词
-- 全局快捷键显示/隐藏
-- Windows 版本
+- Better segment timing for very long synced lines
+- More lyrics source fallbacks
+- Translation mode
+- Window size presets
+- Optional custom app icon
+- Windows support

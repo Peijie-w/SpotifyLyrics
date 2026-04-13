@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 const STATE_CHANNEL = "lyrics:state";
 const PLAYER_CONTROL_CHANNEL = "spotify:player-control";
+const PREPARE_TRANSLATION_CHANNEL = "lyrics:prepare-translation";
 
 contextBridge.exposeInMainWorld("floatingLyrics", {
   onStateChange(callback) {
@@ -14,5 +15,8 @@ contextBridge.exposeInMainWorld("floatingLyrics", {
   },
   controlPlayer(action) {
     return ipcRenderer.invoke(PLAYER_CONTROL_CHANNEL, action);
+  },
+  prepareTranslation(targetLanguage) {
+    return ipcRenderer.invoke(PREPARE_TRANSLATION_CHANNEL, targetLanguage);
   }
 });

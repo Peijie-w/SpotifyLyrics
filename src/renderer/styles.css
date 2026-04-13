@@ -2,6 +2,7 @@
   color-scheme: dark;
   --text-primary: #f8fafc;
   --text-muted: rgba(196, 205, 218, 0.62);
+  --text-translation: rgba(221, 231, 244, 0.82);
   --accent-soft: rgba(113, 231, 178, 0.18);
   --control-bg: rgba(7, 10, 14, 0.52);
   --control-border: rgba(255, 255, 255, 0.1);
@@ -119,6 +120,53 @@ body {
   color: #def7ea;
 }
 
+.language-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 12px 0 10px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  -webkit-app-region: no-drag;
+}
+
+.language-picker:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.language-picker__label {
+  color: rgba(248, 250, 252, 0.58);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.language-picker__select {
+  min-width: 74px;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 700;
+  outline: none;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.language-picker__select option {
+  color: #0f172a;
+}
+
+.control-button.is-active {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
 .lyrics-panel {
   display: flex;
   align-items: center;
@@ -127,6 +175,15 @@ body {
   height: 100%;
   overflow: hidden;
   cursor: default;
+}
+
+.lyrics-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
 }
 
 .lyrics-state {
@@ -159,6 +216,24 @@ body {
     0 0 1px rgba(255, 255, 255, 0.18);
 }
 
+.translation-line {
+  margin: 0;
+  width: 100%;
+  max-width: min(92%, 860px);
+  color: var(--text-translation);
+  font-size: 15px;
+  line-height: 1.28;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.95;
+}
+
+.translation-line.is-loading {
+  color: var(--text-muted);
+}
+
 @media (max-width: 720px) {
   .overlay-card {
     padding: 34px 18px 14px;
@@ -174,5 +249,15 @@ body {
     height: 31px;
     padding: 0 9px;
     font-size: 12px;
+  }
+
+  .language-picker {
+    height: 31px;
+    padding: 0 10px 0 8px;
+  }
+
+  .language-picker__select {
+    min-width: 64px;
+    font-size: 11px;
   }
 }

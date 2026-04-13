@@ -7,7 +7,37 @@
   --control-bg: rgba(7, 10, 14, 0.52);
   --control-border: rgba(255, 255, 255, 0.1);
   --control-shadow: rgba(2, 6, 12, 0.22);
+  --lyrics-surface-bg: transparent;
+  --lyrics-surface-border: transparent;
+  --lyrics-surface-shadow: none;
+  --lyrics-surface-backdrop: none;
+  --lyrics-surface-padding: 0;
+  --lyrics-state-surface-padding: 0;
+  --lyrics-surface-radius: 0;
+  --lyrics-text-shadow:
+    0 2px 14px rgba(0, 0, 0, 0.36),
+    0 0 1px rgba(255, 255, 255, 0.18);
   --lyrics-font-size: 30px;
+}
+
+:root[data-theme="dark"] {
+  --text-primary: #18202f;
+  --text-muted: rgba(24, 32, 47, 0.66);
+  --text-translation: rgba(37, 49, 69, 0.76);
+  --accent-soft: rgba(96, 165, 250, 0.18);
+  --control-bg: rgba(12, 18, 28, 0.72);
+  --control-border: rgba(148, 163, 184, 0.18);
+  --control-shadow: rgba(15, 23, 42, 0.26);
+  --lyrics-surface-bg: transparent;
+  --lyrics-surface-border: transparent;
+  --lyrics-surface-shadow: none;
+  --lyrics-surface-backdrop: none;
+  --lyrics-surface-padding: 0;
+  --lyrics-state-surface-padding: 0;
+  --lyrics-surface-radius: 0;
+  --lyrics-text-shadow:
+    0 0 1px rgba(248, 250, 252, 0.92),
+    0 1px 12px rgba(226, 232, 240, 0.34);
 }
 
 * {
@@ -196,6 +226,24 @@ body {
   width: 100%;
 }
 
+.lyrics-surface {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: min(96%, 920px);
+  padding: var(--lyrics-surface-padding);
+  border: 1px solid var(--lyrics-surface-border);
+  border-radius: var(--lyrics-surface-radius);
+  background: var(--lyrics-surface-bg);
+  box-shadow: var(--lyrics-surface-shadow);
+  backdrop-filter: var(--lyrics-surface-backdrop);
+  -webkit-backdrop-filter: var(--lyrics-surface-backdrop);
+}
+
+.lyrics-surface--state {
+  padding: var(--lyrics-state-surface-padding);
+}
+
 .lyrics-state {
   margin: 0;
   max-width: 100%;
@@ -221,9 +269,7 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: clip;
-  text-shadow:
-    0 2px 14px rgba(0, 0, 0, 0.36),
-    0 0 1px rgba(255, 255, 255, 0.18);
+  text-shadow: var(--lyrics-text-shadow);
 }
 
 .translation-line {

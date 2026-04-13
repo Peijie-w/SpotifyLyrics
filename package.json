@@ -4,7 +4,8 @@
   "description": "A macOS desktop floating lyrics overlay for Spotify.",
   "main": "src/main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "shortcut:windows": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\\create_windows_shortcut.ps1"
   },
   "keywords": [
     "spotify",

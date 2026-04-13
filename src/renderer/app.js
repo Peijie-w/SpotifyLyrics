@@ -6,16 +6,20 @@ const nextTrackButtonEl = document.getElementById("next-track");
 const fontDownButtonEl = document.getElementById("font-down");
 const fontUpButtonEl = document.getElementById("font-up");
 const toggleTranslationButtonEl = document.getElementById("toggle-translation");
+const toggleThemeButtonEl = document.getElementById("toggle-theme");
 const translationLanguageSelectEl = document.getElementById("translation-language");
 const closeOverlayButtonEl = document.getElementById("close-overlay");
 
 const FONT_SIZE_STORAGE_KEY = "floating-lyrics-font-size";
 const TRANSLATION_ENABLED_STORAGE_KEY = "floating-lyrics-translation-enabled";
 const TRANSLATION_LANGUAGE_STORAGE_KEY = "floating-lyrics-translation-language";
+const OVERLAY_THEME_STORAGE_KEY = "floating-lyrics-overlay-theme";
 const MIN_FONT_SIZE = 20;
 const MAX_FONT_SIZE = 64;
 const FONT_STEP = 2;
 const PLAIN_SEGMENT_MS = 1600;
+const DEFAULT_OVERLAY_THEME = "clear";
+const DARK_OVERLAY_THEME = "dark";
 const TRANSLATION_LANGUAGES = [
   { code: "zh-CN", label: "中文" },
   { code: "en", label: "English" },
@@ -46,6 +50,7 @@ let snapshot = {
 let fontSizePx = loadFontSize();
 let translationEnabled = loadTranslationEnabled();
 let translationLanguage = loadTranslationLanguage();
+let overlayTheme = loadOverlayTheme();
 let activeControlAction = "";
 let textMeasureCanvas;
 const translationPreparationInFlight = new Set();
@@ -83,6 +88,12 @@ function loadTranslationLanguage() {
   return "zh-CN";
 }
 
+function loadOverlayTheme() {
+  return window.localStorage.getItem(OVERLAY_THEME_STORAGE_KEY) === DARK_OVERLAY_THEME
+    ? DARK_OVERLAY_THEME
+    : DEFAULT_OVERLAY_THEME;
+}
+
 function saveFontSize() {
   window.localStorage.setItem(FONT_SIZE_STORAGE_KEY, String(fontSizePx));
 }
@@ -95,8 +106,16 @@ function saveTranslationLanguage() {
   window.localStorage.setItem(TRANSLATION_LANGUAGE_STORAGE_KEY, translationLanguage);
 }
 
+function saveOverlayTheme() {
+  window.localStorage.setItem(OVERLAY_THEME_STORAGE_KEY, overlayTheme);
+}
+
 function applyFontSize() {
   document.documentElement.style.setProperty("--lyrics-font-size", `${fontSizePx}px`);
+}
+
+function applyOverlayTheme() {
+  document.documentElement.dataset.theme = overlayTheme;
 }
 
 function adjustFontSize(delta) {
@@ -210,9 +229,11 @@ function renderLyricStack(
     : "";
 
   lyricsPanelEl.innerHTML = `
-    <div class="lyrics-stack">
-      <p class="single-line">${escapeHtml(text)}</p>
-      ${translationMarkup}
+    <div class="lyrics-surface">
+      <div class="lyrics-stack">
+        <p class="single-line">${escapeHtml(text)}</p>
+        ${translationMarkup}
+      </div>
     </div>
   `;
 }
@@ -224,7 +245,11 @@ function getCurrentTranslationLanguageMeta() {
 }
 
 function renderStateLine(text) {
-  lyricsPanelEl.innerHTML = `<p class="lyrics-state">${escapeHtml(text)}</p>`;
+  lyricsPanelEl.innerHTML = `
+    <div class="lyrics-surface lyrics-surface--state">
+      <p class="lyrics-state">${escapeHtml(text)}</p>
+    </div>
+  `;
 }
 
 function setControlsDisabled(disabled) {
@@ -359,7 +384,17 @@ function renderLyrics() {
       return;
     }
 
-    renderStateLine("Lyrics will appear after Spotify connects");
+    if (playback.errorType === "windows-media-service-unavailable") {
+      renderStateLine("Windows media session service is unavailable");
+      return;
+    }
+
+    if (playback.errorType === "windows-media-session-failed") {
+      renderStateLine("Spotify playback detection failed on Windows");
+      return;
+    }
+
+    renderStateLine("Spotify playback is temporarily unavailable");
     return;
   }
 
@@ -433,6 +468,13 @@ function updateTranslationButton() {
   toggleTranslationButtonEl.classList.toggle("is-active", translationEnabled);
 }
 
+function updateThemeButton() {
+  const darkModeEnabled = overlayTheme === DARK_OVERLAY_THEME;
+  toggleThemeButtonEl.classList.toggle("is-active", darkModeEnabled);
+  toggleThemeButtonEl.setAttribute("aria-label", darkModeEnabled ? "Disable dark mode" : "Enable dark mode");
+  toggleThemeButtonEl.title = darkModeEnabled ? "Disable dark mode" : "Enable dark mode";
+}
+
 function updateTranslationLanguageControl() {
   translationLanguageSelectEl.value = translationLanguage;
   translationLanguageSelectEl.disabled = false;
@@ -441,6 +483,7 @@ function updateTranslationLanguageControl() {
 function render() {
   updateTransportButton();
   updateTranslationButton();
+  updateThemeButton();
   updateTranslationLanguageControl();
   renderLyrics();
 }
@@ -518,6 +561,13 @@ bindControl(toggleTranslationButtonEl, () => {
   render();
 });
 
+bindControl(toggleThemeButtonEl, () => {
+  overlayTheme = overlayTheme === DARK_OVERLAY_THEME ? DEFAULT_OVERLAY_THEME : DARK_OVERLAY_THEME;
+  applyOverlayTheme();
+  saveOverlayTheme();
+  render();
+});
+
 translationLanguageSelectEl.addEventListener("pointerdown", (event) => {
   event.stopPropagation();
 });
@@ -553,6 +603,7 @@ window.addEventListener("resize", () => {
   renderLyrics();
 });
 
+applyOverlayTheme();
 applyFontSize();
 
 setInterval(() => {

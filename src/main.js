@@ -30,7 +30,8 @@ function createEmptySnapshot() {
       artist: "",
       album: "",
       durationMs: 0,
-      positionMs: 0
+      positionMs: 0,
+      sampledAt: Date.now()
     },
     lyrics: createLyricsState("idle"),
     fetchedAt: Date.now()
@@ -334,6 +335,13 @@ function createLyricLinesFromPlainText(text) {
   };
 }
 
+function withPlaybackSampleTime(playback) {
+  return {
+    ...playback,
+    sampledAt: Date.now()
+  };
+}
+
 function createLyricLinesFromTimedText(text) {
   const syncedLines = parseLrc(text);
   if (syncedLines.length) {
@@ -508,9 +516,9 @@ async function runWindowsSpotifyBridge(args) {
 async function getSpotifyPlayback() {
   if (process.platform === "win32") {
     try {
-      return await runWindowsSpotifyBridge(["-Mode", "status"]);
+      return withPlaybackSampleTime(await runWindowsSpotifyBridge(["-Mode", "status"]));
     } catch (error) {
-      return {
+      return withPlaybackSampleTime({
         running: false,
         state: "error",
         title: "",
@@ -520,12 +528,12 @@ async function getSpotifyPlayback() {
         positionMs: 0,
         error: error.message || "",
         errorType: "windows-media-session-failed"
-      };
+      });
     }
   }
 
   if (process.platform !== "darwin") {
-    return {
+    return withPlaybackSampleTime({
       running: false,
       state: "error",
       title: "",
@@ -535,11 +543,11 @@ async function getSpotifyPlayback() {
       positionMs: 0,
       error: `Unsupported platform: ${process.platform}`,
       errorType: "unsupported-platform"
-    };
+    });
   }
 
   try {
-    return await runSpotifyJxa(`
+    return withPlaybackSampleTime(await runSpotifyJxa(`
       if (!spotify.running()) {
         JSON.stringify({ running: false, state: "stopped" });
       } else {
@@ -559,7 +567,7 @@ async function getSpotifyPlayback() {
           });
         }
       }
-    `);
+    `));
   } catch (error) {
     const message = error.message || "";
     let errorType = "unknown";
@@ -570,7 +578,7 @@ async function getSpotifyPlayback() {
       errorType = "automation-not-authorized";
     }
 
-    return {
+    return withPlaybackSampleTime({
       running: false,
       state: "error",
       title: "",
@@ -580,7 +588,7 @@ async function getSpotifyPlayback() {
       positionMs: 0,
       error: message,
       errorType
-    };
+    });
   }
 }
 

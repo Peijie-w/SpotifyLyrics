@@ -37,7 +37,8 @@ let snapshot = {
     artist: "",
     album: "",
     durationMs: 0,
-    positionMs: 0
+    positionMs: 0,
+    sampledAt: Date.now()
   },
   lyrics: {
     status: "idle",
@@ -197,7 +198,8 @@ function getLivePositionMs() {
     return base;
   }
 
-  const elapsed = Date.now() - snapshot.fetchedAt;
+  const sampledAt = Number(snapshot.playback.sampledAt || snapshot.fetchedAt || Date.now());
+  const elapsed = Math.max(0, Date.now() - sampledAt);
   return Math.min(snapshot.playback.durationMs || base, base + elapsed);
 }
 

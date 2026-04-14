@@ -191,6 +191,28 @@ function measureTextWidth(text) {
   return getMeasureContext().measureText(text).width;
 }
 
+function getSegmentTimingWeight(text) {
+  const tokens = String(text || "")
+    .trim()
+    .match(/[A-Za-z0-9]+|[^\s]/g);
+
+  if (!tokens?.length) {
+    return 1;
+  }
+
+  return tokens.reduce((total, token) => {
+    if (/^[A-Za-z0-9]+$/.test(token)) {
+      return total + Math.max(1, Math.ceil(token.length / 3));
+    }
+
+    if (/^[,.;:!?/~|()[\]-]+$/.test(token)) {
+      return total + 0.2;
+    }
+
+    return total + 1;
+  }, 0);
+}
+
 function splitLyricIntoSegments(text, maxWidth) {
   const normalizedText = String(text || "").replace(/\s+/g, " ").trim();
 
@@ -392,11 +414,28 @@ function getSyncedSegmentMeta(text, startMs, endMs) {
   }
 
   const nowMs = getLivePositionMs();
-  const fallbackDuration = segments.length * 1300;
+  const segmentWeights = segments.map((segment) => getSegmentTimingWeight(segment));
+  const totalWeight = segmentWeights.reduce((sum, weight) => sum + weight, 0) || segments.length;
+  const fallbackDuration = Math.max(
+    segments.length * 1300,
+    Math.round(segmentWeights.reduce((sum, weight) => sum + weight * 420, 0))
+  );
   const totalDuration = Math.max(segments.length * 900, (endMs || startMs + fallbackDuration) - startMs);
   const safeElapsed = Math.max(0, nowMs - startMs);
-  const ratio = Math.min(0.999, safeElapsed / totalDuration);
-  const segmentIndex = Math.min(segments.length - 1, Math.floor(ratio * segments.length));
+  let segmentIndex = 0;
+  let elapsedBoundaryMs = 0;
+
+  // Keep longer split segments on screen longer instead of switching at evenly divided time slices.
+  for (let index = 0; index < segmentWeights.length - 1; index += 1) {
+    elapsedBoundaryMs += (segmentWeights[index] / totalWeight) * totalDuration;
+
+    if (safeElapsed >= elapsedBoundaryMs) {
+      segmentIndex = index + 1;
+      continue;
+    }
+
+    break;
+  }
 
   return {
     text: segments[segmentIndex],

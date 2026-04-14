@@ -610,8 +610,6 @@ function updateTimingButtons() {
   const offsetLabel = formatTimingOffsetLabel(lyricTimingOffsetMs);
   timingBackwardButtonEl.title = `Delay lyrics by ${LYRIC_TIMING_STEP_MS}ms. Current offset: ${offsetLabel}`;
   timingForwardButtonEl.title = `Advance lyrics by ${LYRIC_TIMING_STEP_MS}ms. Current offset: ${offsetLabel}`;
-  timingBackwardButtonEl.classList.toggle("is-active", lyricTimingOffsetMs < 0);
-  timingForwardButtonEl.classList.toggle("is-active", lyricTimingOffsetMs > 0);
 }
 
 function updateThemeButton() {

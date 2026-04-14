@@ -26,6 +26,8 @@ const PLAIN_SEGMENT_MS = 1600;
 const PLAYING_RENDER_INTERVAL_MS = 120;
 const PLAYBACK_LOOKAHEAD_MS = 140;
 const SYNCED_LINE_SWITCH_LOOKAHEAD_MS = 140;
+const SYNCED_SEGMENT_SWITCH_DELAY_MS = 80;
+const MIN_SYNCED_SEGMENT_DURATION_MS = 420;
 const SYNCED_LINE_BACKTRACK_GUARD_MS = 320;
 const DISPLAY_POSITION_SEEK_RESET_MS = 1800;
 const DEFAULT_OVERLAY_THEME = "clear";
@@ -191,6 +193,28 @@ function measureTextWidth(text) {
   return getMeasureContext().measureText(text).width;
 }
 
+function getSegmentTimingWeight(text) {
+  const tokens = String(text || "")
+    .trim()
+    .match(/[A-Za-z0-9]+|[^\s]/g);
+
+  if (!tokens?.length) {
+    return 1;
+  }
+
+  return tokens.reduce((total, token) => {
+    if (/^[A-Za-z0-9]+$/.test(token)) {
+      return total + Math.max(1, Math.ceil(token.length / 3));
+    }
+
+    if (/^[,.;:!?/~|()[\]-]+$/.test(token)) {
+      return total + 0.2;
+    }
+
+    return total + 1;
+  }, 0);
+}
+
 function splitLyricIntoSegments(text, maxWidth) {
   const normalizedText = String(text || "").replace(/\s+/g, " ").trim();
 
@@ -241,26 +265,34 @@ function splitLyricIntoSegments(text, maxWidth) {
   return segments.filter(Boolean);
 }
 
-function getLivePositionMs() {
+function getLivePositionMs(options = {}) {
+  const lookaheadMs =
+    typeof options.lookaheadMs === "number" && Number.isFinite(options.lookaheadMs)
+      ? options.lookaheadMs
+      : PLAYBACK_LOOKAHEAD_MS;
+  const preserveDisplayState = options.preserveDisplayState !== false && lookaheadMs === PLAYBACK_LOOKAHEAD_MS;
   const trackKey = getPlaybackTrackKey();
   const base = snapshot.playback.positionMs || 0;
   let livePositionMs = Math.max(0, base + lyricTimingOffsetMs);
 
   if (snapshot.playback.state !== "playing") {
-    lastDisplayedPlaybackState = {
-      trackKey,
-      positionMs: livePositionMs,
-      playbackState: snapshot.playback.state
-    };
+    if (preserveDisplayState) {
+      lastDisplayedPlaybackState = {
+        trackKey,
+        positionMs: livePositionMs,
+        playbackState: snapshot.playback.state
+      };
+    }
     return livePositionMs;
   }
 
   const sampledAt = Number(snapshot.playback.sampledAt || snapshot.fetchedAt || Date.now());
   const elapsed = Math.max(0, Date.now() - sampledAt);
-  const adjustedPositionMs = base + elapsed + PLAYBACK_LOOKAHEAD_MS + lyricTimingOffsetMs;
+  const adjustedPositionMs = base + elapsed + lookaheadMs + lyricTimingOffsetMs;
   livePositionMs = Math.max(0, Math.min(snapshot.playback.durationMs || Math.max(base, adjustedPositionMs), adjustedPositionMs));
 
   if (
+    preserveDisplayState &&
     lastDisplayedPlaybackState.trackKey === trackKey &&
     lastDisplayedPlaybackState.playbackState === "playing"
   ) {
@@ -271,11 +303,13 @@ function getLivePositionMs() {
     }
   }
 
-  lastDisplayedPlaybackState = {
-    trackKey,
-    positionMs: livePositionMs,
-    playbackState: snapshot.playback.state
-  };
+  if (preserveDisplayState) {
+    lastDisplayedPlaybackState = {
+      trackKey,
+      positionMs: livePositionMs,
+      playbackState: snapshot.playback.state
+    };
+  }
 
   return livePositionMs;
 }
@@ -391,12 +425,37 @@ function getSyncedSegmentMeta(text, startMs, endMs) {
     };
   }
 
-  const nowMs = getLivePositionMs();
-  const fallbackDuration = segments.length * 1300;
+  const nowMs = getLivePositionMs({
+    lookaheadMs: 0,
+    preserveDisplayState: false
+  });
+  const segmentWeights = segments.map((segment) => getSegmentTimingWeight(segment));
+  const totalWeight = segmentWeights.reduce((sum, weight) => sum + weight, 0) || segments.length;
+  const fallbackDuration = Math.max(
+    segments.length * 1300,
+    Math.round(segmentWeights.reduce((sum, weight) => sum + weight * 420, 0))
+  );
   const totalDuration = Math.max(segments.length * 900, (endMs || startMs + fallbackDuration) - startMs);
-  const safeElapsed = Math.max(0, nowMs - startMs);
-  const ratio = Math.min(0.999, safeElapsed / totalDuration);
-  const segmentIndex = Math.min(segments.length - 1, Math.floor(ratio * segments.length));
+  const minimumSegmentDurationMs = Math.min(MIN_SYNCED_SEGMENT_DURATION_MS, totalDuration / segments.length);
+  const weightedDurationMs = Math.max(0, totalDuration - minimumSegmentDurationMs * segments.length);
+  const segmentDurations = segmentWeights.map(
+    (weight) => minimumSegmentDurationMs + (weightedDurationMs * weight) / totalWeight
+  );
+  const safeElapsed = Math.max(0, nowMs - startMs - SYNCED_SEGMENT_SWITCH_DELAY_MS);
+  let segmentIndex = 0;
+  let elapsedBoundaryMs = 0;
+
+  // Keep longer split segments on screen longer and avoid advancing the next fragment too early.
+  for (let index = 0; index < segmentDurations.length - 1; index += 1) {
+    elapsedBoundaryMs += segmentDurations[index];
+
+    if (safeElapsed >= elapsedBoundaryMs) {
+      segmentIndex = index + 1;
+      continue;
+    }
+
+    break;
+  }
 
   return {
     text: segments[segmentIndex],

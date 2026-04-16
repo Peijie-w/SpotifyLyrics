@@ -674,6 +674,7 @@ function updateTimingButtons() {
 function updateThemeButton() {
   const darkModeEnabled = overlayTheme === DARK_OVERLAY_THEME;
   toggleThemeButtonEl.classList.toggle("is-active", darkModeEnabled);
+  toggleThemeButtonEl.textContent = darkModeEnabled ? "☀" : "☾";
   toggleThemeButtonEl.setAttribute("aria-label", darkModeEnabled ? "Disable dark mode" : "Enable dark mode");
   toggleThemeButtonEl.title = darkModeEnabled ? "Disable dark mode" : "Enable dark mode";
 }

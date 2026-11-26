@@ -127,9 +127,12 @@ body {
 
 .control-bar {
   position: absolute;
+  z-index: 2;
   top: 10px;
   left: 50%;
   display: flex;
+  width: max-content;
+  max-width: calc(100% - 18px);
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
@@ -287,6 +290,7 @@ body {
   height: 100%;
   overflow: hidden;
   cursor: default;
+  pointer-events: none;
 }
 
 .lyrics-stack {
